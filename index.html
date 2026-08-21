@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Excel-Datenuebernahme</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8;
+    --card-bg: #ffffff;
+    --border: #d7dbe0;
+    --text: #1b1f24;
+    --muted: #626b76;
+    --accent: #2f6fed;
+    --accent-hover: #1f57c9;
+    --error: #c1352e;
+    --success: #1a7f37;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --card-bg: #1d2025;
+      --border: #33383f;
+      --text: #eceef0;
+      --muted: #9aa2ad;
+      --accent: #5b8dfb;
+      --accent-hover: #7ea3fc;
+      --error: #ff6b62;
+      --success: #4fd67a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 560px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+  }
+  h1 {
+    font-size: 1.3rem;
+    margin: 0 0 8px;
+  }
+  p.subtitle {
+    color: var(--muted);
+    margin: 0 0 24px;
+    font-size: 0.95rem;
+  }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background-color 0.15s;
+  }
+  .dropzone.dragover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .dropzone p {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .dropzone strong {
+    color: var(--text);
+  }
+  input[type="file"] { display: none; }
+  .filename {
+    margin-top: 16px;
+    font-size: 0.9rem;
+    color: var(--text);
+    word-break: break-all;
+  }
+  button.primary {
+    margin-top: 20px;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status {
+    margin-top: 16px;
+    font-size: 0.9rem;
+    min-height: 1.2em;
+  }
+  .status.error { color: var(--error); }
+  .status.success { color: var(--success); }
+  .result {
+    margin-top: 20px;
+    display: none;
+  }
+  .result.visible { display: block; }
+  a.download {
+    display: inline-block;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  a.download:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .preview {
+    margin-top: 16px;
+    max-height: 260px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
+  th, td {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  th { background: color-mix(in srgb, var(--text) 5%, transparent); position: sticky; top: 0; }
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: -2px;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+  .auth-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .auth-row input[type="password"] {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  .auth-row button {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="card" id="authCard">
+    <h1>Anmeldung</h1>
+    <p class="subtitle">Bitte Passwort eingeben, um fortzufahren.</p>
+    <div class="auth-row">
+      <input type="password" id="passwordInput" placeholder="Passwort" autofocus>
+      <button id="loginBtn">Anmelden</button>
+    </div>
+    <div class="status" id="authStatus"></div>
+  </div>
+
+  <div class="card hidden" id="mainCard">
+    <h1>Excel-Datenuebernahme</h1>
+    <p class="subtitle">Excel-Datei hochladen &ndash; die Daten werden automatisch per LLM ausgewertet und in die hinterlegte Vorlage uebernommen.</p>
+
+    <label class="dropzone" id="dropzone" for="fileInput">
+      <div id="dropzoneText">
+        <p><strong>Datei hier ablegen</strong></p>
+        <p>oder klicken, um eine Excel-Datei (.xlsx) auszuwaehlen</p>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+    </label>
+    <div class="filename" id="filename"></div>
+
+    <button class="primary" id="submitBtn" disabled>Verarbeiten</button>
+    <div class="status" id="status"></div>
+
+    <div class="result" id="result">
+      <a class="download" id="downloadLink" download="ausgefuellte_vorlage.xlsx">Ergebnis herunterladen</a>
+      <div class="preview" id="preview"></div>
+    </div>
+  </div>
+
+<script>
+  const authCard = document.getElementById('authCard');
+  const mainCard = document.getElementById('mainCard');
+  const passwordInput = document.getElementById('passwordInput');
+  const loginBtn = document.getElementById('loginBtn');
+  const authStatus = document.getElementById('authStatus');
+
+  function getStoredPassword() {
+    try { return sessionStorage.getItem('hlwg_pw') || ''; } catch { return ''; }
+  }
+  function storePassword(pw) {
+    try { sessionStorage.setItem('hlwg_pw', pw); } catch { /* ignore */ }
+  }
+
+  async function tryLogin(password) {
+    loginBtn.disabled = true;
+    authStatus.className = 'status';
+    authStatus.textContent = 'Pruefe ...';
+    try {
+      const resp = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Anmeldung fehlgeschlagen.');
+      }
+      storePassword(password);
+      authCard.classList.add('hidden');
+      mainCard.classList.remove('hidden');
+    } catch (err) {
+      authStatus.textContent = err.message;
+      authStatus.className = 'status error';
+    } finally {
+      loginBtn.disabled = false;
+    }
+  }
+
+  loginBtn.addEventListener('click', () => tryLogin(passwordInput.value));
+  passwordInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') tryLogin(passwordInput.value);
+  });
+
+  const storedPw = getStoredPassword();
+  if (storedPw) tryLogin(storedPw);
+
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const filenameEl = document.getElementById('filename');
+  const submitBtn = document.getElementById('submitBtn');
+  const statusEl = document.getElementById('status');
+  const resultEl = document.getElementById('result');
+  const downloadLink = document.getElementById('downloadLink');
+  const previewEl = document.getElementById('preview');
+
+  let selectedFile = null;
+
+  function setFile(file) {
+    if (!file) return;
+    selectedFile = file;
+    filenameEl.textContent = file.name;
+    submitBtn.disabled = false;
+    resultEl.classList.remove('visible');
+    statusEl.textContent = '';
+    statusEl.className = 'status';
+  }
+
+  dropzone.addEventListener('click', (e) => {
+    e.preventDefault();
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+
+  ['dragenter', 'dragover'].forEach(evt =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    })
+  );
+  ['dragleave', 'drop'].forEach(evt =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+    })
+  );
+  dropzone.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files[0];
+    setFile(file);
+  });
+
+  submitBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    submitBtn.disabled = true;
+    resultEl.classList.remove('visible');
+    statusEl.className = 'status';
+    statusEl.innerHTML = '<span class="spinner"></span>Datei wird verarbeitet ...';
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const response = await fetch('/api/process', {
+        method: 'POST',
+        headers: { 'x-site-password': getStoredPassword() },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        throw new Error(errText || ('Fehler ' + response.status));
+      }
+
+      const data = await response.json();
+
+      const byteChars = atob(data.fileBase64);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      downloadLink.href = url;
+      downloadLink.download = data.filename || 'ausgefuellte_vorlage.xlsx';
+
+      previewEl.innerHTML = '';
+      if (Array.isArray(data.preview) && data.preview.length) {
+        const table = document.createElement('table');
+        const headRow = document.createElement('tr');
+        Object.keys(data.preview[0]).forEach(key => {
+          const th = document.createElement('th');
+          th.textContent = key;
+          headRow.appendChild(th);
+        });
+        table.appendChild(headRow);
+        data.preview.forEach(row => {
+          const tr = document.createElement('tr');
+          Object.values(row).forEach(val => {
+            const td = document.createElement('td');
+            td.textContent = val === null || val === undefined ? '' : String(val);
+            tr.appendChild(td);
+          });
+          table.appendChild(tr);
+        });
+        previewEl.appendChild(table);
+      }
+
+      resultEl.classList.add('visible');
+      statusEl.textContent = 'Fertig.';
+      statusEl.className = 'status success';
+    } catch (err) {
+      statusEl.textContent = 'Fehler: ' + err.message;
+      statusEl.className = 'status error';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "hl-wg-excel-import",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Upload-Tool: Excel-Datei per LLM auswerten und in eine Excel-Vorlage uebernehmen",
+  "scripts": {
+    "generate-placeholder-template": "node scripts/generate-placeholder-template.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "exceljs": "^4.4.0",
+    "formidable": "^3.5.1"
+  }
+}

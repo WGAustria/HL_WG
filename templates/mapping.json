@@ -1,0 +1,8 @@
+{
+  "_readme": "TODO: An die echte Excel-Vorlage anpassen, sobald diese vorliegt. Jeder Eintrag beschreibt ein Feld, das das LLM liefert, und wo es in der Vorlage (templates/vorlage.xlsx) landet.",
+  "fields": [
+    { "field": "beispiel_name", "sheet": "Tabelle1", "cell": "B2" },
+    { "field": "beispiel_datum", "sheet": "Tabelle1", "cell": "B3" },
+    { "field": "beispiel_betrag", "sheet": "Tabelle1", "cell": "B4" }
+  ]
+}
