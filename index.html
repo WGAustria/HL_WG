@@ -266,7 +266,8 @@
       <div class="stats" id="stats"></div>
       <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
         <a class="download" id="downloadLink" download="Einspieldatei.xlsx">Einspieldatei herunterladen</a>
-        <a class="download" id="reviewDownloadLink" download="Pruefliste.xlsx">Pruefliste herunterladen</a>
+        <a class="download" id="reviewDownloadLink" download="Pruefliste.xlsx">Pruefliste (Version 1) herunterladen</a>
+        <a class="download" id="reviewV2DownloadLink" download="Pruefliste_v2.xlsx">Pruefliste (Version 2) herunterladen</a>
       </div>
       <div id="reviewSummary"></div>
       <div class="preview" id="preview"></div>
@@ -328,6 +329,7 @@
   const resultEl = document.getElementById('result');
   const downloadLink = document.getElementById('downloadLink');
   const reviewDownloadLink = document.getElementById('reviewDownloadLink');
+  const reviewV2DownloadLink = document.getElementById('reviewV2DownloadLink');
   const previewEl = document.getElementById('preview');
   const statsEl = document.getElementById('stats');
   const reviewSummaryEl = document.getElementById('reviewSummary');
@@ -409,6 +411,8 @@
       downloadLink.download = data.filename || 'Einspieldatei.xlsx';
       reviewDownloadLink.href = toXlsxUrl(data.reviewBase64);
       reviewDownloadLink.download = data.reviewFilename || 'Pruefliste.xlsx';
+      reviewV2DownloadLink.href = toXlsxUrl(data.reviewV2Base64);
+      reviewV2DownloadLink.download = data.reviewV2Filename || 'Pruefliste_v2.xlsx';
 
       statsEl.innerHTML = '';
       if (data.stats) {

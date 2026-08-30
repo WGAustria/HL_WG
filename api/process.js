@@ -3,7 +3,7 @@ const fs = require('fs');
 const { formidable } = require('formidable');
 const ExcelJS = require('exceljs');
 const Anthropic = require('@anthropic-ai/sdk');
-const { buildOutput, writeOutputToTemplate, buildReviewWorkbook, REVIEW_REASON_LABELS } = require('../lib/outputBuilder');
+const { buildOutput, writeOutputToTemplate, buildReviewWorkbook, buildReviewWorkbookV2, REVIEW_REASON_LABELS } = require('../lib/outputBuilder');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'vorlage.xlsx');
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
@@ -78,6 +78,10 @@ module.exports = async function handler(req, res) {
     const reviewBuffer = await reviewWorkbook.xlsx.writeBuffer();
     const reviewBase64 = Buffer.from(reviewBuffer).toString('base64');
 
+    const reviewWorkbookV2 = buildReviewWorkbookV2(review);
+    const reviewBufferV2 = await reviewWorkbookV2.xlsx.writeBuffer();
+    const reviewV2Base64 = Buffer.from(reviewBufferV2).toString('base64');
+
     const reviewSummary = {};
     for (const entry of review) {
       const label = REVIEW_REASON_LABELS[entry.reason] || entry.reason;
@@ -99,7 +103,9 @@ module.exports = async function handler(req, res) {
       fileBase64,
       filename: `Einspieldatei_${dateStamp}.xlsx`,
       reviewBase64,
-      reviewFilename: `Pruefliste_${dateStamp}.xlsx`,
+      reviewFilename: `Pruefliste_v1_${dateStamp}.xlsx`,
+      reviewV2Base64,
+      reviewV2Filename: `Pruefliste_v2_${dateStamp}.xlsx`,
       preview,
       stats,
       reviewSummary
