@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Excel-Datenuebernahme</title>
+<title>Wertgarantie Geraeteschutz Reporting</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -44,11 +44,57 @@
   }
   .card {
     width: 100%;
-    max-width: 560px;
+    max-width: 720px;
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 32px;
+  }
+  .date-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .date-field {
+    flex: 1;
+  }
+  .date-field label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .date-field input {
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.9rem;
+  }
+  .stats {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+  }
+  .stat-tile {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .stat-tile .value { font-size: 1.2rem; font-weight: 700; }
+  .stat-tile .label { font-size: 0.75rem; color: var(--muted); }
+  .review-list {
+    margin-top: 12px;
+    font-size: 0.85rem;
+  }
+  .review-list li { margin: 2px 0; }
+  .hint {
+    margin-top: 12px;
+    font-size: 0.8rem;
+    color: var(--muted);
   }
   h1 {
     font-size: 1.3rem;
@@ -188,23 +234,40 @@
   </div>
 
   <div class="card hidden" id="mainCard">
-    <h1>Excel-Datenuebernahme</h1>
-    <p class="subtitle">Excel-Datei hochladen &ndash; die Daten werden automatisch per LLM ausgewertet und in die hinterlegte Vorlage uebernommen.</p>
+    <h1>Wertgarantie Geraeteschutz Reporting</h1>
+    <p class="subtitle">Report-Datei hochladen &ndash; Geraete und Wertgarantie-Artikel werden automatisch gefiltert, gepaart und in die Einspieldatei uebernommen.</p>
 
     <label class="dropzone" id="dropzone" for="fileInput">
       <div id="dropzoneText">
-        <p><strong>Datei hier ablegen</strong></p>
-        <p>oder klicken, um eine Excel-Datei (.xlsx) auszuwaehlen</p>
+        <p><strong>Report-Datei hier ablegen</strong></p>
+        <p>oder klicken, um die Report_Garantieverlaengerung.xlsx auszuwaehlen</p>
       </div>
       <input type="file" id="fileInput" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
     </label>
     <div class="filename" id="filename"></div>
 
+    <div class="date-row">
+      <div class="date-field">
+        <label for="dateFrom">Von (optional)</label>
+        <input type="date" id="dateFrom">
+      </div>
+      <div class="date-field">
+        <label for="dateTo">Bis (optional)</label>
+        <input type="date" id="dateTo">
+      </div>
+    </div>
+    <p class="hint">Ohne Angabe wird die gesamte Report-Datei verarbeitet. Mit Von/Bis wird nach dim_datum_key (Spalte X) gefiltert &ndash; entspricht Schritt 3 der Anleitung ("offene Tage").</p>
+
     <button class="primary" id="submitBtn" disabled>Verarbeiten</button>
     <div class="status" id="status"></div>
 
     <div class="result" id="result">
-      <a class="download" id="downloadLink" download="ausgefuellte_vorlage.xlsx">Ergebnis herunterladen</a>
+      <div class="stats" id="stats"></div>
+      <div style="margin-top:16px;">
+        <a class="download" id="downloadLink" download="Einspieldatei.xlsx">Einspieldatei herunterladen</a>
+      </div>
+      <p class="hint">Die Downloaddatei enthaelt zusaetzlich ein Blatt "Pruefliste" mit allen Zeilen, die nicht automatisch verarbeitet werden konnten.</p>
+      <div id="reviewSummary"></div>
       <div class="preview" id="preview"></div>
     </div>
   </div>
@@ -264,6 +327,10 @@
   const resultEl = document.getElementById('result');
   const downloadLink = document.getElementById('downloadLink');
   const previewEl = document.getElementById('preview');
+  const statsEl = document.getElementById('stats');
+  const reviewSummaryEl = document.getElementById('reviewSummary');
+  const dateFromEl = document.getElementById('dateFrom');
+  const dateToEl = document.getElementById('dateTo');
 
   let selectedFile = null;
 
@@ -311,6 +378,8 @@
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
+      if (dateFromEl.value) formData.append('dateFrom', dateFromEl.value);
+      if (dateToEl.value) formData.append('dateTo', dateToEl.value);
 
       const response = await fetch('/api/process', {
         method: 'POST',
@@ -333,6 +402,35 @@
       const url = URL.createObjectURL(blob);
       downloadLink.href = url;
       downloadLink.download = data.filename || 'ausgefuellte_vorlage.xlsx';
+
+      statsEl.innerHTML = '';
+      if (data.stats) {
+        const tiles = [
+          ['Zeilen gesamt', data.stats.totalRows],
+          ['Bons gruppiert', data.stats.bonGroups],
+          ['Paare gebildet', data.stats.pairsCreated],
+          ['davon Storno', data.stats.stornoCount],
+          ['Pruefliste (Zeilen)', data.stats.reviewRowCount]
+        ];
+        tiles.forEach(([label, value]) => {
+          const tile = document.createElement('div');
+          tile.className = 'stat-tile';
+          tile.innerHTML = '<div class="value">' + value + '</div><div class="label">' + label + '</div>';
+          statsEl.appendChild(tile);
+        });
+      }
+
+      reviewSummaryEl.innerHTML = '';
+      if (data.reviewSummary && Object.keys(data.reviewSummary).length) {
+        const list = document.createElement('ul');
+        list.className = 'review-list';
+        Object.entries(data.reviewSummary).forEach(([reason, count]) => {
+          const li = document.createElement('li');
+          li.textContent = count + '× ' + reason;
+          list.appendChild(li);
+        });
+        reviewSummaryEl.appendChild(list);
+      }
 
       previewEl.innerHTML = '';
       if (Array.isArray(data.preview) && data.preview.length) {

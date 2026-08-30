@@ -1,10 +1,9 @@
 const path = require('path');
-const formidable = require('formidable');
+const fs = require('fs');
+const { formidable } = require('formidable');
+const ExcelJS = require('exceljs');
 const Anthropic = require('@anthropic-ai/sdk');
-const { readSourceWorkbook, loadTemplateWorkbook, applyMapping } = require('../lib/excel');
-const { SYSTEM_PROMPT } = require('../lib/prompt');
-
-const mapping = require('../templates/mapping.json');
+const { buildOutput, writeOutputToTemplate, writeReviewSheet, REVIEW_REASON_LABELS } = require('../lib/outputBuilder');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'vorlage.xlsx');
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
@@ -14,7 +13,7 @@ module.exports.config = {
 };
 
 function parseForm(req) {
-  const form = formidable({ maxFileSize: 20 * 1024 * 1024 });
+  const form = formidable({ maxFileSize: 30 * 1024 * 1024 });
   return new Promise((resolve, reject) => {
     form.parse(req, (err, fields, files) => {
       if (err) reject(err);
@@ -23,11 +22,9 @@ function parseForm(req) {
   });
 }
 
-function extractJson(text) {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1] : trimmed;
-  return JSON.parse(candidate);
+function fieldValue(fields, name) {
+  const v = fields[name];
+  return Array.isArray(v) ? v[0] : v;
 }
 
 module.exports = async function handler(req, res) {
@@ -42,64 +39,64 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    res.status(500).json({ error: 'ANTHROPIC_API_KEY ist auf dem Server nicht konfiguriert.' });
-    return;
-  }
-
   try {
-    const { files } = await parseForm(req);
+    const { fields, files } = await parseForm(req);
     const uploaded = Array.isArray(files.file) ? files.file[0] : files.file;
     if (!uploaded) {
       res.status(400).json({ error: 'Keine Datei erhalten.' });
       return;
     }
 
-    const fs = require('fs');
+    const dateFromRaw = fieldValue(fields, 'dateFrom');
+    const dateToRaw = fieldValue(fields, 'dateTo');
+    const dateFrom = dateFromRaw ? new Date(dateFromRaw) : null;
+    const dateTo = dateToRaw ? new Date(dateToRaw) : null;
+
     const buffer = fs.readFileSync(uploaded.filepath);
+    const reportWorkbook = new ExcelJS.Workbook();
+    await reportWorkbook.xlsx.load(buffer);
 
-    const sourceData = await readSourceWorkbook(buffer);
+    const anthropic = process.env.ANTHROPIC_API_KEY
+      ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+      : null;
 
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const response = await anthropic.messages.create({
+    const { outputRows, review, stats } = await buildOutput(reportWorkbook, {
+      anthropic,
       model: MODEL,
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `Inhalt der hochgeladenen Excel-Datei (JSON):\n${JSON.stringify(sourceData)}`
-        }
-      ]
+      dateFrom,
+      dateTo
     });
 
-    const textBlock = response.content.find((b) => b.type === 'text');
-    if (!textBlock) throw new Error('Keine Textantwort vom LLM erhalten.');
+    const templateWorkbook = new ExcelJS.Workbook();
+    await templateWorkbook.xlsx.readFile(TEMPLATE_PATH);
+    writeOutputToTemplate(templateWorkbook, outputRows);
+    writeReviewSheet(templateWorkbook, review);
 
-    let values;
-    try {
-      values = extractJson(textBlock.text);
-    } catch {
-      throw new Error('Antwort des LLM konnte nicht als JSON gelesen werden.');
-    }
-
-    const workbook = await loadTemplateWorkbook(TEMPLATE_PATH);
-    applyMapping(workbook, mapping, values);
-
-    const outBuffer = await workbook.xlsx.writeBuffer();
+    const outBuffer = await templateWorkbook.xlsx.writeBuffer();
     const fileBase64 = Buffer.from(outBuffer).toString('base64');
 
-    const preview = [
-      ...mapping.fields.map(({ field }) => ({
-        Feld: field,
-        Wert: values && values[field] !== undefined ? values[field] : ''
-      }))
-    ];
+    const reviewSummary = {};
+    for (const entry of review) {
+      const label = REVIEW_REASON_LABELS[entry.reason] || entry.reason;
+      reviewSummary[label] = (reviewSummary[label] || 0) + entry.rows.length;
+    }
+
+    const preview = outputRows.slice(0, 50).map((r) => ({
+      Bonnummer: r.bonnummer,
+      Hersteller: r.hersteller,
+      Modell: r.modellbezeichnung,
+      Seriennummer: r.seriennummer,
+      Kaufpreis: r.kaufpreis,
+      Produkttyp: r.produkttyp,
+      Storno: r.isStorno ? 'ja' : ''
+    }));
 
     res.status(200).json({
       fileBase64,
-      filename: 'ausgefuellte_vorlage.xlsx',
-      preview
+      filename: `Einspieldatei_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      preview,
+      stats,
+      reviewSummary
     });
   } catch (err) {
     console.error(err);
