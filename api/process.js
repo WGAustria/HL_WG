@@ -3,7 +3,7 @@ const fs = require('fs');
 const { formidable } = require('formidable');
 const ExcelJS = require('exceljs');
 const Anthropic = require('@anthropic-ai/sdk');
-const { buildOutput, writeOutputToTemplate, writeReviewSheet, REVIEW_REASON_LABELS } = require('../lib/outputBuilder');
+const { buildOutput, writeOutputToTemplate, buildReviewWorkbook, REVIEW_REASON_LABELS } = require('../lib/outputBuilder');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'vorlage.xlsx');
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
@@ -70,10 +70,13 @@ module.exports = async function handler(req, res) {
     const templateWorkbook = new ExcelJS.Workbook();
     await templateWorkbook.xlsx.readFile(TEMPLATE_PATH);
     writeOutputToTemplate(templateWorkbook, outputRows);
-    writeReviewSheet(templateWorkbook, review);
 
     const outBuffer = await templateWorkbook.xlsx.writeBuffer();
     const fileBase64 = Buffer.from(outBuffer).toString('base64');
+
+    const reviewWorkbook = buildReviewWorkbook(review);
+    const reviewBuffer = await reviewWorkbook.xlsx.writeBuffer();
+    const reviewBase64 = Buffer.from(reviewBuffer).toString('base64');
 
     const reviewSummary = {};
     for (const entry of review) {
@@ -91,9 +94,12 @@ module.exports = async function handler(req, res) {
       Storno: r.isStorno ? 'ja' : ''
     }));
 
+    const dateStamp = new Date().toISOString().slice(0, 10);
     res.status(200).json({
       fileBase64,
-      filename: `Einspieldatei_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filename: `Einspieldatei_${dateStamp}.xlsx`,
+      reviewBase64,
+      reviewFilename: `Pruefliste_${dateStamp}.xlsx`,
       preview,
       stats,
       reviewSummary

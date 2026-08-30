@@ -264,10 +264,10 @@
 
     <div class="result" id="result">
       <div class="stats" id="stats"></div>
-      <div style="margin-top:16px;">
+      <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
         <a class="download" id="downloadLink" download="Einspieldatei.xlsx">Einspieldatei herunterladen</a>
+        <a class="download" id="reviewDownloadLink" download="Pruefliste.xlsx">Pruefliste herunterladen</a>
       </div>
-      <p class="hint">Die Downloaddatei enthaelt zusaetzlich ein Blatt "Pruefliste" mit allen Zeilen, die nicht automatisch verarbeitet werden konnten.</p>
       <div id="reviewSummary"></div>
       <div class="preview" id="preview"></div>
     </div>
@@ -327,6 +327,7 @@
   const statusEl = document.getElementById('status');
   const resultEl = document.getElementById('result');
   const downloadLink = document.getElementById('downloadLink');
+  const reviewDownloadLink = document.getElementById('reviewDownloadLink');
   const previewEl = document.getElementById('preview');
   const statsEl = document.getElementById('stats');
   const reviewSummaryEl = document.getElementById('reviewSummary');
@@ -395,14 +396,19 @@
 
       const data = await response.json();
 
-      const byteChars = atob(data.fileBase64);
-      const byteNumbers = new Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob);
-      downloadLink.href = url;
-      downloadLink.download = data.filename || 'ausgefuellte_vorlage.xlsx';
+      function toXlsxUrl(base64) {
+        const byteChars = atob(base64);
+        const byteNumbers = new Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        return URL.createObjectURL(blob);
+      }
+
+      downloadLink.href = toXlsxUrl(data.fileBase64);
+      downloadLink.download = data.filename || 'Einspieldatei.xlsx';
+      reviewDownloadLink.href = toXlsxUrl(data.reviewBase64);
+      reviewDownloadLink.download = data.reviewFilename || 'Pruefliste.xlsx';
 
       statsEl.innerHTML = '';
       if (data.stats) {
