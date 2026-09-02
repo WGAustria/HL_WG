@@ -34,7 +34,11 @@ module.exports = async function handler(req, res) {
   }
 
   const sitePassword = process.env.SITE_PASSWORD;
-  if (sitePassword && req.headers['x-site-password'] !== sitePassword) {
+  if (!sitePassword) {
+    res.status(500).json({ error: 'SITE_PASSWORD ist auf dem Server nicht konfiguriert.' });
+    return;
+  }
+  if (req.headers['x-site-password'] !== sitePassword) {
     res.status(401).json({ error: 'Nicht autorisiert.' });
     return;
   }
@@ -94,7 +98,8 @@ module.exports = async function handler(req, res) {
       Modell: r.modellbezeichnung,
       Seriennummer: r.seriennummer,
       Kaufpreis: r.kaufpreis,
-      Produkttyp: r.produkttyp,
+      // Gekuerzt fuer die Vorschau-Tabelle (voller Wert steht in der Einspieldatei selbst).
+      Produkttyp: r.produkttyp.replace(/^GERAETESCHUTZ_/, '').replace(/_2021$/, ''),
       Storno: r.isStorno ? 'ja' : ''
     }));
 

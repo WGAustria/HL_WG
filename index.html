@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Wertgarantie Geraeteschutz Reporting</title>
+<title>Wertgarantie Gerätereport</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -235,13 +235,13 @@
   </div>
 
   <div class="card hidden" id="mainCard">
-    <h1>Wertgarantie Geraeteschutz Reporting</h1>
-    <p class="subtitle">Report-Datei hochladen &ndash; Geraete und Wertgarantie-Artikel werden automatisch gefiltert, gepaart und in die Einspieldatei uebernommen.</p>
+    <h1>Wertgarantie Geräteschutz Reporting</h1>
+    <p class="subtitle">Report-Datei hochladen &ndash; Geräte und Wertgarantie-Artikel werden automatisch gefiltert, gepaart und in die Einspieldatei übernommen.</p>
 
     <label class="dropzone" id="dropzone" for="fileInput">
       <div id="dropzoneText">
         <p><strong>Report-Datei hier ablegen</strong></p>
-        <p>oder klicken, um die Report_Garantieverlaengerung.xlsx auszuwaehlen</p>
+        <p>oder klicken, um die Report_Garantieverlängerung.xlsx auszuwählen</p>
       </div>
       <input type="file" id="fileInput" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
     </label>
@@ -266,8 +266,8 @@
       <div class="stats" id="stats"></div>
       <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
         <a class="download" id="downloadLink" download="Einspieldatei.xlsx">Einspieldatei herunterladen</a>
-        <a class="download" id="reviewDownloadLink" download="Pruefliste.xlsx">Pruefliste (Version 1) herunterladen</a>
-        <a class="download" id="reviewV2DownloadLink" download="Pruefliste_v2.xlsx">Pruefliste (Version 2) herunterladen</a>
+        <a class="download" id="reviewDownloadLink" download="Pruefliste.xlsx">Prüfliste V1 herunterladen</a>
+        <a class="download" id="reviewV2DownloadLink" download="Pruefliste_v2.xlsx">Prüfliste V2 herunterladen</a>
       </div>
       <div id="reviewSummary"></div>
       <div class="preview" id="preview"></div>
@@ -291,7 +291,7 @@
   async function tryLogin(password) {
     loginBtn.disabled = true;
     authStatus.className = 'status';
-    authStatus.textContent = 'Pruefe ...';
+    authStatus.textContent = 'Prüfe ...';
     try {
       const resp = await fetch('/api/login', {
         method: 'POST',
@@ -421,7 +421,7 @@
           ['Bons gruppiert', data.stats.bonGroups],
           ['Paare gebildet', data.stats.pairsCreated],
           ['davon Storno', data.stats.stornoCount],
-          ['Pruefliste (Zeilen)', data.stats.reviewRowCount]
+          ['Prüfliste (Zeilen)', data.stats.reviewRowCount]
         ];
         tiles.forEach(([label, value]) => {
           const tile = document.createElement('div');
