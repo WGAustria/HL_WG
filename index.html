@@ -261,6 +261,7 @@
 
     <button class="primary" id="submitBtn" disabled>Verarbeiten</button>
     <div class="status" id="status"></div>
+    <div class="hint hidden" id="uploadProgressWrap">Upload: <span id="uploadProgressText">0%</span></div>
 
     <div class="result" id="result">
       <div class="stats" id="stats"></div>
@@ -372,23 +373,48 @@
     setFile(file);
   });
 
+  const uploadProgressWrap = document.getElementById('uploadProgressWrap');
+  const uploadProgressText = document.getElementById('uploadProgressText');
+
   submitBtn.addEventListener('click', async () => {
     if (!selectedFile) return;
     submitBtn.disabled = true;
     resultEl.classList.remove('visible');
     statusEl.className = 'status';
-    statusEl.innerHTML = '<span class="spinner"></span>Datei wird verarbeitet ...';
+    statusEl.innerHTML = '<span class="spinner"></span>Datei wird hochgeladen ...';
+    uploadProgressWrap.classList.remove('hidden');
+    uploadProgressText.textContent = '0%';
 
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      if (dateFromEl.value) formData.append('dateFrom', dateFromEl.value);
-      if (dateToEl.value) formData.append('dateTo', dateToEl.value);
+      if (typeof window.vercelBlobUpload !== 'function') {
+        throw new Error('Upload-Modul konnte nicht geladen werden. Bitte Seite neu laden.');
+      }
+
+      const pathname = 'reports/' + Date.now() + '-' + selectedFile.name.replace(/[^A-Za-z0-9._-]/g, '_');
+      const blobResult = await window.vercelBlobUpload(pathname, selectedFile, {
+        access: 'private',
+        handleUploadUrl: '/api/blob-upload',
+        headers: { 'x-site-password': getStoredPassword() },
+        onUploadProgress: (progress) => {
+          const pct = Math.round((progress.percentage || 0));
+          uploadProgressText.textContent = pct + '%';
+        }
+      });
+
+      uploadProgressWrap.classList.add('hidden');
+      statusEl.innerHTML = '<span class="spinner"></span>Datei wird verarbeitet ...';
 
       const response = await fetch('/api/process', {
         method: 'POST',
-        headers: { 'x-site-password': getStoredPassword() },
-        body: formData
+        headers: {
+          'Content-Type': 'application/json',
+          'x-site-password': getStoredPassword()
+        },
+        body: JSON.stringify({
+          blobUrl: blobResult.url,
+          dateFrom: dateFromEl.value || null,
+          dateTo: dateToEl.value || null
+        })
       });
 
       if (!response.ok) {
@@ -473,8 +499,10 @@
       statusEl.className = 'status error';
     } finally {
       submitBtn.disabled = false;
+      uploadProgressWrap.classList.add('hidden');
     }
   });
 </script>
+<script src="blob-client.bundle.js"></script>
 </body>
 </html>

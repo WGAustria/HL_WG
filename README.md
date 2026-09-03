@@ -17,7 +17,10 @@ Abweichungen und offenen Punkte).
 ```
 index.html                Ein-Seiten-Frontend (Upload, Passwort-Gate, Datumsfilter, Vorschau/Download)
 api/login.js               Prüft das gemeinsame Passwort
-api/process.js              Nimmt die Report-Datei entgegen, orchestriert die Verarbeitung
+api/blob-upload.js          Stellt Client-Tokens für den direkten Browser-Upload zu Vercel Blob aus
+api/process.js              Lädt die Report-Datei von Vercel Blob, orchestriert die Verarbeitung
+build/blob-client-entry.js  Build-Entry für den Blob-Upload-Browser-Bundle (siehe unten)
+blob-client.bundle.js       Fertig gebauter Browser-Bundle (im Repo abgelegt, kein Build-Step nötig)
 lib/reportPipeline.js       Filtern (Geraet/WG-Artikel/Sonstiges), Bonnummer-Gruppierung, Paarung, Storno-Netting
 lib/brandMatch.js           Hersteller-Ableitung per Markenliste (schnell, kein API-Call)
 lib/brandLlmFallback.js     Hersteller-Ableitung per Claude fuer unbekannte Artikelbezeichnungen (gebuendelt)
@@ -30,6 +33,38 @@ Zero-config Vercel-Projekt ("Other"): statische Dateien im Projekt-Root,
 Serverless Functions im Ordner `api/`. `vercel.json` setzt `maxDuration: 60`
 für `api/process.js`, da die Report-Datei ca. 50.000+ Zeilen hat und die
 Verarbeitung (Laden, Paaren, Schreiben) mehrere Sekunden dauert.
+
+### Datei-Upload über Vercel Blob (wichtig)
+
+Vercel Serverless Functions lehnen Requests über 4,5 MB grundsätzlich ab
+(`FUNCTION_PAYLOAD_TOO_LARGE`) – das ist ein fixes Infrastruktur-Limit, das
+sich nicht per Konfiguration umgehen lässt. Die echte Report-Datei ist aber
+üblicherweise > 10 MB. Deshalb läuft der Upload zweistufig:
+
+1. Der Browser lädt die Datei **direkt** zu Vercel Blob hoch (nicht über eine
+   Serverless Function), authentifiziert über ein kurzlebiges Client-Token,
+   das `api/blob-upload.js` ausstellt (`handleUpload`-Route). Das übernimmt
+   `blob-client.bundle.js` (eingebunden in `index.html`), ein mit esbuild
+   vorgebauter Browser-Bundle von `@vercel/blob/client`'s `upload()`-Funktion
+   – ein raw `<script type="module">`-Import würde nicht funktionieren, da
+   `@vercel/blob/client` Node-only Imports (`crypto`, `undici`) enthält, die
+   nur über einen Bundler mit `platform: browser` sauber aufgelöst werden.
+2. Der Browser schickt anschließend nur noch die (kleine) Blob-URL plus
+   Datumsfilter als JSON an `/api/process`. Die Funktion lädt die Datei von
+   dort per `fetch`, verarbeitet sie wie bisher und löscht den Blob danach
+   wieder.
+
+**Voraussetzung im Vercel-Projekt:** Unter *Storage* muss ein **Blob Store**
+angelegt und mit dem Projekt verbunden sein (einmalig, im Vercel-Dashboard,
+"Connect Store" bzw. "Create Database → Blob"). Das setzt automatisch die
+Umgebungsvariable `BLOB_READ_WRITE_TOKEN` – ohne diese Variable schlägt der
+Upload fehl. Diesen Schritt muss der Projekt-Owner selbst im eigenen
+Vercel-Account durchführen.
+
+Falls `build/blob-client-entry.js` geändert wird, muss der Bundle neu gebaut
+werden: `npm run build:blob-client` (erzeugt `blob-client.bundle.js` neu,
+kein Build-Step auf Vercel selbst nötig – die Datei wird fertig gebaut
+eingecheckt).
 
 ## Fachliche Logik – wichtige Entscheidungen
 
@@ -94,10 +129,14 @@ zusätzlich eine Zusammenfassung nach Grund an.
 |----------------------|---------|------------------------------------------------------|
 | `ANTHROPIC_API_KEY`  | ja      | API-Key für die Anthropic Claude API (Hersteller-Fallback) |
 | `SITE_PASSWORD`      | ja      | Gemeinsames Passwort für den Zugriffsschutz           |
+| `BLOB_READ_WRITE_TOKEN` | ja   | Wird automatisch gesetzt, sobald im Vercel-Projekt unter *Storage* ein Blob Store verbunden ist – siehe Abschnitt "Datei-Upload über Vercel Blob" oben |
 | `ANTHROPIC_MODEL`    | nein    | Überschreibt das Standardmodell (`claude-sonnet-5`)   |
 
-Diese Variablen müssen im Vercel-Projekt unter *Settings → Environment
-Variables* gesetzt werden (Production und ggf. Preview).
+`ANTHROPIC_API_KEY` und `SITE_PASSWORD` müssen im Vercel-Projekt unter
+*Settings → Environment Variables* manuell gesetzt werden (Production und
+ggf. Preview). `BLOB_READ_WRITE_TOKEN` wird **nicht** manuell gesetzt,
+sondern automatisch angelegt, sobald ein Blob Store mit dem Projekt
+verbunden wird.
 
 ## Passwortschutz
 

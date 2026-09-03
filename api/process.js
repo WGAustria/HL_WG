@@ -1,31 +1,11 @@
 const path = require('path');
-const fs = require('fs');
-const { formidable } = require('formidable');
 const ExcelJS = require('exceljs');
 const Anthropic = require('@anthropic-ai/sdk');
+const { del } = require('@vercel/blob');
 const { buildOutput, writeOutputToTemplate, buildReviewWorkbook, buildReviewWorkbookV2, REVIEW_REASON_LABELS } = require('../lib/outputBuilder');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'vorlage.xlsx');
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
-
-module.exports.config = {
-  api: { bodyParser: false }
-};
-
-function parseForm(req) {
-  const form = formidable({ maxFileSize: 30 * 1024 * 1024 });
-  return new Promise((resolve, reject) => {
-    form.parse(req, (err, fields, files) => {
-      if (err) reject(err);
-      else resolve({ fields, files });
-    });
-  });
-}
-
-function fieldValue(fields, name) {
-  const v = fields[name];
-  return Array.isArray(v) ? v[0] : v;
-}
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -43,20 +23,24 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  try {
-    const { fields, files } = await parseForm(req);
-    const uploaded = Array.isArray(files.file) ? files.file[0] : files.file;
-    if (!uploaded) {
-      res.status(400).json({ error: 'Keine Datei erhalten.' });
-      return;
-    }
+  const { blobUrl, dateFrom: dateFromRaw, dateTo: dateToRaw } = req.body || {};
+  if (!blobUrl || typeof blobUrl !== 'string') {
+    res.status(400).json({ error: 'Keine Datei erhalten (blobUrl fehlt).' });
+    return;
+  }
 
-    const dateFromRaw = fieldValue(fields, 'dateFrom');
-    const dateToRaw = fieldValue(fields, 'dateTo');
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+
+  try {
     const dateFrom = dateFromRaw ? new Date(dateFromRaw) : null;
     const dateTo = dateToRaw ? new Date(dateToRaw) : null;
 
-    const buffer = fs.readFileSync(uploaded.filepath);
+    const blobResp = await fetch(blobUrl, blobToken ? { headers: { Authorization: `Bearer ${blobToken}` } } : undefined);
+    if (!blobResp.ok) {
+      throw new Error(`Datei konnte nicht geladen werden (Blob-Status ${blobResp.status}).`);
+    }
+    const buffer = Buffer.from(await blobResp.arrayBuffer());
+
     const reportWorkbook = new ExcelJS.Workbook();
     await reportWorkbook.xlsx.load(buffer);
 
@@ -98,7 +82,6 @@ module.exports = async function handler(req, res) {
       Modell: r.modellbezeichnung,
       Seriennummer: r.seriennummer,
       Kaufpreis: r.kaufpreis,
-      // Gekuerzt fuer die Vorschau-Tabelle (voller Wert steht in der Einspieldatei selbst).
       Produkttyp: r.produkttyp.replace(/^GERAETESCHUTZ_/, '').replace(/_2021$/, ''),
       Storno: r.isStorno ? 'ja' : ''
     }));
@@ -115,6 +98,10 @@ module.exports = async function handler(req, res) {
       stats,
       reviewSummary
     });
+
+    if (blobToken) {
+      del(blobUrl, { token: blobToken }).catch((err) => console.error('Blob-Loeschung fehlgeschlagen:', err));
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Verarbeitung fehlgeschlagen.' });

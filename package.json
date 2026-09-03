@@ -4,11 +4,14 @@
   "private": true,
   "description": "Upload-Tool: Excel-Datei per LLM auswerten und in eine Excel-Vorlage uebernehmen",
   "scripts": {
-    "generate-placeholder-template": "node scripts/generate-placeholder-template.js"
+    "build:blob-client": "esbuild build/blob-client-entry.js --bundle --platform=browser --format=iife --outfile=blob-client.bundle.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
-    "exceljs": "^4.4.0",
-    "formidable": "^3.5.1"
+    "@vercel/blob": "^2.8.0",
+    "exceljs": "^4.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }
