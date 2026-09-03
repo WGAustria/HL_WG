@@ -15,16 +15,27 @@ Abweichungen und offenen Punkte).
 
 **Wichtig zur Einspieldatei-Vorlage:** `templates/vorlage.xlsx` ist eine
 bereinigte Kopie der echten Wertgarantie-Datei "Einspieldatei_HL_neu.xlsx"
-(bezogen von Hartlauer). Enthalten sind nur die fünf tatsächlich benötigten
+(bezogen von Hartlauer). Enthalten sind nur die sechs tatsächlich benötigten
 Blätter - "GS Basis" und "GS Komfort u. Plus" (Zielblätter, auf Kopf-/
 Vorgabezeile zurückgesetzt, ohne die mehrjährige Historie der Originaldatei)
-sowie die Referenztabellen "MA Liste", "Geschäfte Liste" und
-"Geraetekennzeichen Wertgarantie" (siehe unten). Die 49 monatlichen
-"Report DD.MM.YYYY"-Archivblätter, "GS NEU" und "Auswertung aktuell" aus der
-Originaldatei werden bewusst NICHT verwendet (nicht gebraucht, hätten die
-Vorlage auf >3 MB aufgebläht). Das Tool akkumuliert selbst keine Historie -
-jeder Lauf erzeugt eine frische Einspieldatei ab der ersten leeren Zeile
-dieser bereinigten Vorlage.
+sowie die Referenztabellen "MA Liste", "Geschäfte Liste",
+"Geraetekennzeichen Wertgarantie" und "Partnerliste AKP" (siehe unten). Die
+49 monatlichen "Report DD.MM.YYYY"-Archivblätter, "GS NEU" und "Auswertung
+aktuell" aus der Originaldatei werden bewusst NICHT verwendet (nicht
+gebraucht, hätten die Vorlage stark aufgebläht). Das Tool akkumuliert selbst
+keine Historie - jeder Lauf erzeugt eine frische Einspieldatei ab der ersten
+leeren Zeile dieser bereinigten Vorlage.
+
+**"Partnerliste AKP"** wurde nachträglich ergänzt (Quelle: eine von Hartlauer
+gelieferte AKP/FH-Liste, ursprünglich als eigene xlsx-Datei). Diese
+Originaldatei hat einen Case-Sensitivity-Bug (Excel-intern referenziert
+`Sheet1.xml` seine Beziehungsdatei als `sheet1.xml.rels` - unter Windows/macOS
+unsichtbar, auf dem case-sensitiven Vercel-Dateisystem bricht ExcelJS daran
+aber ab und liest 0 Arbeitsblätter). Die Datei wurde deshalb einmalig lokal
+mit einer anderen Bibliothek gelesen, auf die zwei benötigten Spalten (AKP,
+FH Nummer) reduziert und sauber in die Vorlage geschrieben - nicht die
+gelieferte Originaldatei direkt einbinden, falls sie erneut aktualisiert
+wird (gleiches Vorgehen wiederholen, siehe `lib/akpFallbackLookup.js`).
 
 ## Aufbau
 
@@ -45,6 +56,7 @@ lib/brandLlmFallback.js     Hersteller-Ableitung per Claude fuer unbekannte Arti
 lib/vermittlerLookup.js     AKP-Lookup ueber die "MA Liste" im Report (V1+V2)
 lib/geschaefteLookup.js     FH-Nummer/Geschaeftsadresse-Lookup ueber "Geschäfte Liste" in der Vorlage (V1+V2)
 lib/kategorieLookup.js      Kategorie-Lookup (Geraetekennzeichen -> Beschreibung) ueber "Geraetekennzeichen Wertgarantie" in der Vorlage (V1+V2)
+lib/akpFallbackLookup.js    AKP-Fallback (erste AKP je FH Nummer) ueber "Partnerliste AKP" in der Vorlage (V1+V2)
 templates/vorlage.xlsx      Bereinigte echte Einspieldatei-Vorlage (siehe Kasten oben)
 ```
 
@@ -125,10 +137,14 @@ eingecheckt).
   Hersteller danach immer noch unbekannt, wird `"sonstige"` eingetragen statt
   die Zeile zurückzuhalten – die Zeile gilt dafür allein nicht mehr als
   unvollständig. (identisch in V1 und V2)
-- **AKP** (Vermittlernummer): Lookup über `vknr`/Personalnummer (Report
-  Spalte E) gegen die Spalte "Mitarbeiter" im Blatt `MA Liste`, mit
-  Namens-Fallback (`lib/vermittlerLookup.js`). Ca. 15% der Mitarbeiter fehlen
-  aktuell in der MA-Liste.
+- **AKP** (Vermittlernummer): primär Lookup über `vknr`/Personalnummer
+  (Report Spalte E) gegen die Spalte "Mitarbeiter" im Blatt `MA Liste`, mit
+  Namens-Fallback (`lib/vermittlerLookup.js`). Findet sich dort kein Treffer,
+  wird ersatzweise die **erste** AKP-Nummer aus dem Blatt `Partnerliste AKP`
+  der Vorlage genommen, die zur (über die Filialnummer aufgelösten) FH
+  Nummer der Filiale passt (`lib/akpFallbackLookup.js`) - so vom Kunden
+  vorgegeben. Nur wenn auch dieser Fallback keinen Treffer liefert, gilt die
+  AKP als fehlend.
 - **FH Nummer + Geschäftsadresse**: Lookup über die Filialnummer (Report
   Spalte G) gegen "GNR" im Blatt `Geschäfte Liste` der Vorlage
   (`lib/geschaefteLookup.js`), liefert FH Nummer ("WG GNr"), PLZ, Ort und
@@ -185,14 +201,6 @@ steckt ausschließlich in `lib/*V1.js` vs. `lib/*.js`.
 
 ### Bewusst offen / TODO
 
-- **AKP-Fallback über die Filialnummer:** laut Absprache soll, wenn die
-  Personalnummer keinen AKP-Treffer in `MA Liste` liefert, stattdessen die
-  Filialnummer gegen eine separate "FH Liste" (mit allen AKP/FH-Nummern)
-  abgeglichen und die **erste** dort gelistete AKP-Nummer als Fallback
-  verwendet werden. Diese Liste lag beim Umbau auf die neue Vorlage noch
-  nicht vor - sobald sie vorliegt, in `lib/vermittlerLookup.js` (bzw. einer
-  neuen `lib/akpFallbackLookup.js`) ergänzen und in `buildOutput()` als
-  zweiten Versuch nach dem MA-Liste-Lookup einbauen.
 - **"Gebraucht Nachtrag"** (WG-Artikel ohne Gerät): braucht laut Anleitung
   eine Suche in Salesforce/AX, auf die dieses Tool keinen Zugriff hat – diese
   Zeilen werden nur in der Prüfliste ausgewiesen, nicht automatisch verarbeitet.
