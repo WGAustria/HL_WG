@@ -479,22 +479,17 @@
 
       const data = await response.json();
 
-      function toXlsxUrl(base64) {
-        const byteChars = atob(base64);
-        const byteNumbers = new Array(byteChars.length);
-        for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        return URL.createObjectURL(blob);
-      }
-
-      downloadLink.href = toXlsxUrl(data.fileBase64);
+      // Ergebnisdateien liegen (wegen des 4,5MB-Response-Limits von Vercel
+      // Serverless Functions bei einem vollen Tagesreport) auf Vercel Blob -
+      // der Browser laedt sie direkt von dort, "download" erzwingt dank
+      // downloadUrl trotzdem den Speichern-Dialog statt Inline-Anzeige.
+      downloadLink.href = data.fileUrl;
       downloadLink.download = data.filename || 'Einspieldatei.xlsx';
-      reviewDownloadLink.href = toXlsxUrl(data.reviewBase64);
+      reviewDownloadLink.href = data.reviewUrl;
       reviewDownloadLink.download = data.reviewFilename || 'Pruefdatei.xlsx';
 
-      if (data.reviewLegacyFlatBase64) {
-        reviewLegacyFlatDownloadLink.href = toXlsxUrl(data.reviewLegacyFlatBase64);
+      if (data.reviewLegacyFlatUrl) {
+        reviewLegacyFlatDownloadLink.href = data.reviewLegacyFlatUrl;
         reviewLegacyFlatDownloadLink.download = data.reviewLegacyFlatFilename || 'Pruefliste_flach.xlsx';
         reviewLegacyFlatDownloadLink.classList.remove('hidden');
       } else {

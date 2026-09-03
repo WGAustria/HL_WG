@@ -2,15 +2,29 @@
 
 Web-Tool für die tägliche Aufbereitung des Wertgarantie-Geräteschutz-Reports
 (Hartlauer): Die tägliche Report-Datei wird hochgeladen, Geräte werden
-automatisch mit ihrem passenden Wertgarantie-Artikel gepaart, Hersteller und
-Vermittlernummer aufgelöst, und das Ergebnis wird in die Einspieldatei-Vorlage
+automatisch mit ihrem passenden Wertgarantie-Artikel gepaart, Hersteller, AKP
+(Vermittlernummer) und FH Nummer (Filialkennung) aufgelöst, und das Ergebnis
+wird in "GS Basis" bzw. "GS Komfort u. Plus" der Einspieldatei-Vorlage
 übernommen. Alles, was nicht eindeutig automatisch entschieden werden kann,
-landet in einer Prüfliste statt geraten zu werden.
+landet in einer Prüfdatei statt geraten zu werden.
 
 Bildet die in der Anleitung "Erhebung und Durchführung des täglichen
 Wertgarantie Geräteschutz Reportings" beschriebenen Schritte 3–20
 deterministisch nach (siehe Abschnitt "Fachliche Logik" unten für die
 Abweichungen und offenen Punkte).
+
+**Wichtig zur Einspieldatei-Vorlage:** `templates/vorlage.xlsx` ist eine
+bereinigte Kopie der echten Wertgarantie-Datei "Einspieldatei_HL_neu.xlsx"
+(bezogen von Hartlauer). Enthalten sind nur die fünf tatsächlich benötigten
+Blätter - "GS Basis" und "GS Komfort u. Plus" (Zielblätter, auf Kopf-/
+Vorgabezeile zurückgesetzt, ohne die mehrjährige Historie der Originaldatei)
+sowie die Referenztabellen "MA Liste", "Geschäfte Liste" und
+"Geraetekennzeichen Wertgarantie" (siehe unten). Die 49 monatlichen
+"Report DD.MM.YYYY"-Archivblätter, "GS NEU" und "Auswertung aktuell" aus der
+Originaldatei werden bewusst NICHT verwendet (nicht gebraucht, hätten die
+Vorlage auf >3 MB aufgebläht). Das Tool akkumuliert selbst keine Historie -
+jeder Lauf erzeugt eine frische Einspieldatei ab der ersten leeren Zeile
+dieser bereinigten Vorlage.
 
 ## Aufbau
 
@@ -28,8 +42,10 @@ lib/reportPipelineV1.js     V1 (bisherige Logik): wie reportPipeline.js, inkl. P
 lib/brandMatchV1.js         V1 (bisherige Logik): wie brandMatch.js, ohne Netzbetreiber-Erkennung
 lib/outputBuilderV1.js      V1 (bisherige Logik): wie outputBuilder.js, ohne Filtersystem
 lib/brandLlmFallback.js     Hersteller-Ableitung per Claude fuer unbekannte Artikelbezeichnungen (gebuendelt, V1+V2)
-lib/vermittlerLookup.js     Vermittlernummer-Lookup ueber die "MA Liste" im Report (V1+V2)
-templates/vorlage.xlsx      Die echte Einspieldatei-Vorlage ("Daten" + "Gerätekennzeichen")
+lib/vermittlerLookup.js     AKP-Lookup ueber die "MA Liste" im Report (V1+V2)
+lib/geschaefteLookup.js     FH-Nummer/Geschaeftsadresse-Lookup ueber "Geschäfte Liste" in der Vorlage (V1+V2)
+lib/kategorieLookup.js      Kategorie-Lookup (Geraetekennzeichen -> Beschreibung) ueber "Geraetekennzeichen Wertgarantie" in der Vorlage (V1+V2)
+templates/vorlage.xlsx      Bereinigte echte Einspieldatei-Vorlage (siehe Kasten oben)
 ```
 
 Die Web-Oberfläche hat nach dem Login einen Umschalter zwischen **V1**
@@ -89,13 +105,19 @@ eingecheckt).
   bewusst auf diese Preisstaffel-Zuordnung – bei mehreren Kandidaten geht die
   ganze Bon-Gruppe immer in die Prüfdatei statt (auch nur teilweise)
   automatisch geraten zu werden.
-- **Spalten-Mapping Report → Vorlage**: erfolgt **nach Feldbedeutung**
-  (Hersteller→Hersteller, SerienNr→Seriennummer, umsatz→Kaufpreis, ...), nicht
+- **Keine Kundendaten in "GS Basis"/"GS Komfort u. Plus"**: die echten
+  historischen Zeilen dieser Blätter enthalten laut Vorlage nie Anrede/Email
+  und nutzen die Kundenadresse nicht - stattdessen: Filialnummer (Spalte 7),
+  die Konstante `"Bonnummer"` (Spalte 8), die echte Kassenbonnummer
+  (Spalte 9), die Konstante `"Hartlauer"` (Spalte 10) und die
+  **Geschäftsadresse** (Spalten 11-15, aus `lib/geschaefteLookup.js`). Das
+  Tool folgt dieser echten Praxis, nicht der (irreführenden) Kopfzeile.
+  (identisch in V1 und V2)
+- **Spalten-Mapping Report → Vorlage**: erfolgt **nach Feldbedeutung**, nicht
   positionsbasiert wie ursprünglich in der Anleitung beschrieben – eine
   wörtliche Spalte-E-bis-Z-Kopie wurde an den echten Dateien getestet und
-  ergab keinen Sinn (Spalten landen mehrere Positionen verschoben). Siehe
-  `lib/outputBuilder.js` (`TARGET_COLS`) für die konkrete Zuordnung.
-  (identisch in V1 und V2)
+  ergab keinen Sinn. Siehe `lib/outputBuilder.js` (`TARGET_COLS`) für die
+  konkrete Zuordnung. (identisch in V1 und V2)
 - **Hersteller**: zuerst Musterabgleich über eine kuratierte Markenliste
   (`lib/brandMatch.js` bzw. `lib/brandMatchV1.js`, deckt ca. 92% der
   Gerätezeilen ab), für den Rest gebündelter Claude-Aufruf pro **eindeutiger**
@@ -103,9 +125,18 @@ eingecheckt).
   Hersteller danach immer noch unbekannt, wird `"sonstige"` eingetragen statt
   die Zeile zurückzuhalten – die Zeile gilt dafür allein nicht mehr als
   unvollständig. (identisch in V1 und V2)
-- **Vermittlernummer**: Lookup über `vknr` (Report Spalte E) gegen die
-  Spalte "Mitarbeiter" im Blatt `MA Liste`, mit Namens-Fallback. Ca. 15% der
-  Mitarbeiter fehlen aktuell in der MA-Liste.
+- **AKP** (Vermittlernummer): Lookup über `vknr`/Personalnummer (Report
+  Spalte E) gegen die Spalte "Mitarbeiter" im Blatt `MA Liste`, mit
+  Namens-Fallback (`lib/vermittlerLookup.js`). Ca. 15% der Mitarbeiter fehlen
+  aktuell in der MA-Liste.
+- **FH Nummer + Geschäftsadresse**: Lookup über die Filialnummer (Report
+  Spalte G) gegen "GNR" im Blatt `Geschäfte Liste` der Vorlage
+  (`lib/geschaefteLookup.js`), liefert FH Nummer ("WG GNr"), PLZ, Ort und
+  Strasse/Hausnummer (per Regex aus der kombinierten Adresse getrennt).
+- **Kategorie**: Lookup über das Gerätekennzeichen (GKZ, bereits aus dem
+  Report bekannt) gegen das Blatt `Geraetekennzeichen Wertgarantie` der
+  Vorlage (`lib/kategorieLookup.js`), z.B. `"Tablet-Computer"`,
+  `"Smartwatch"`. Kein Treffer → leer (kein Blocker, kein "sonstige"-Fallback).
 - **Netzbetreiber-Geräte**: Manche ArtikelBezeichnungen beginnen mit einer
   österreichischen Mobilfunk-Vorwahl (0660/0664/0676/...) statt direkt mit der
   Marke (z.B. "0664 Sam A56") – ein Hinweis, dass das Gerät an einen
@@ -113,12 +144,16 @@ eingecheckt).
   (`isNetzbetreiberGeraet` in `lib/brandMatch.js` bzw. `lib/brandMatchV1.js`)
   bewusst NICHT in die Einspieldatei, sondern ausschließlich in die
   Prüfdatei/Prüfliste.
-- **Produkttyp**: `GERAETESCHUTZ_KOMFORT_3_2021` / `GERAETESCHUTZ_PLUS_24_2021`
-  / `GERAETESCHUTZ_BASIS_5_2021`, abgeleitet aus dem WG-Artikelnamen
-  ("Komfort" / "Plus" / sonst Basis). (identisch in V1 und V2)
+- **Zielblatt + Produkttyp/Policentyp**: Komfort/Plus-WG-Artikel gehen ins
+  Blatt "GS Komfort u. Plus" (Produkttyp `"Geräteschutz Komfort"` bzw.
+  `"Geräteschutz Plus"`, Policentyp `"GERAETESCHUTZ"`), alles andere ins
+  Blatt "GS Basis" (Produkttyp `"Geräteschutz Basis"`, Policentyp
+  `"GARANTIEVERLAENGERUNG"`) - siehe `wgProduktInfo()` in
+  `lib/outputBuilder.js`. (identisch in V1 und V2)
 - **Storno**: Minus-Positionen, die sich nicht mit einer Gegenposition im
-  selben Bon aufheben, werden mit `Antragskodierung = "STORNO"` markiert und
-  die ganze Zeile rot eingefärbt. (identisch in V1 und V2)
+  selben Bon aufheben, werden per rot eingefärbter Zeile markiert (die neue
+  Vorlage hat kein `Antragskodierung`-Feld mehr für einen Storno-Code).
+  (identisch in V1 und V2)
 
 ## V1 vs. V2 – das Filtersystem
 
@@ -127,18 +162,18 @@ gewählt werden:
 
 - **V2 – Filtersystem (neu, Standard):** ein Datensatz landet **nur dann** in
   der Einspieldatei, wenn wirklich **alle** Parameter automatisch ermittelt
-  werden konnten (Vermittlernummer, eindeutige Paarung) UND es sich nicht um
-  ein Netzbetreiber-Gerät handelt. Fehlt auch nur eines davon, geht die
-  komplette Zeile **ausschließlich** in die Prüfdatei – nie in beide. Die
-  Prüfdatei ist dabei **eine einzige Arbeitsmappe im exakt selben
-  Spaltenformat wie das "Daten"-Blatt** der Einspieldatei (plus angehängten
+  werden konnten (AKP, FH Nummer/Geschäftsadresse, eindeutige Paarung) UND es
+  sich nicht um ein Netzbetreiber-Gerät handelt. Fehlt auch nur eines davon,
+  geht die komplette Zeile **ausschließlich** in die Prüfdatei – nie in
+  beide. Die Prüfdatei ist dabei **eine einzige Arbeitsmappe im exakt selben
+  Spaltenformat wie "GS Basis"/"GS Komfort u. Plus"** (plus angehängten
   Grund-/Bonnummer-/Hinweis-Spalten), damit eine geprüfte/ergänzte Zeile 1:1
   hineinkopiert werden kann. Keine Preisstaffel-Zuordnung bei mehreren
   Kandidaten (siehe oben). Unbekannter Hersteller blockiert nicht mehr (siehe
   "sonstige"-Fallback oben).
 - **V1 – bisherige Logik:** entspricht dem Stand vor der Filtersystem-Umstellung.
   Preisstaffel-Zuordnung bei mehreren Kandidaten ist aktiv, und Zeilen mit
-  fehlender Vermittlernummer werden **trotzdem** (mit Lücke) in die
+  fehlender AKP oder FH Nummer werden **trotzdem** (mit Lücke) in die
   Einspieldatei übernommen – die Prüfliste dient dort nur dazu, die fehlende
   Angabe direkt in der bereits vorhandenen Zeile zu ergänzen. Netzbetreiber-Geräte
   werden wie in V2 immer ausschließlich in die Prüfliste gegeben. V1 bietet
@@ -150,10 +185,14 @@ steckt ausschließlich in `lib/*V1.js` vs. `lib/*.js`.
 
 ### Bewusst offen / TODO
 
-- **Antragskodierung** (außer bei Storno), **VMRAbrechnung**, **Intervall**:
-  aktuell leer, laut Absprache für den Test zunächst nicht befüllt. Sobald
-  eine Referenzdatei mit bekannten korrekten Werten vorliegt, in
-  `lib/outputBuilder.js` (`buildOutput`) ergänzen.
+- **AKP-Fallback über die Filialnummer:** laut Absprache soll, wenn die
+  Personalnummer keinen AKP-Treffer in `MA Liste` liefert, stattdessen die
+  Filialnummer gegen eine separate "FH Liste" (mit allen AKP/FH-Nummern)
+  abgeglichen und die **erste** dort gelistete AKP-Nummer als Fallback
+  verwendet werden. Diese Liste lag beim Umbau auf die neue Vorlage noch
+  nicht vor - sobald sie vorliegt, in `lib/vermittlerLookup.js` (bzw. einer
+  neuen `lib/akpFallbackLookup.js`) ergänzen und in `buildOutput()` als
+  zweiten Versuch nach dem MA-Liste-Lookup einbauen.
 - **"Gebraucht Nachtrag"** (WG-Artikel ohne Gerät): braucht laut Anleitung
   eine Suche in Salesforce/AX, auf die dieses Tool keinen Zugriff hat – diese
   Zeilen werden nur in der Prüfliste ausgewiesen, nicht automatisch verarbeitet.
@@ -171,6 +210,21 @@ Die Prüfdatei (V2) bzw. Prüfliste (V1) ist eine **eigenständige** Datei, kein
 Tab in der Einspieldatei – siehe Abschnitt "V1 vs. V2" oben für den genauen
 Unterschied. Die Web-Oberfläche zeigt zusätzlich eine Zusammenfassung nach
 Grund an.
+
+## Ergebnisdateien über Vercel Blob (wichtig)
+
+Ein voller Tagesreport erzeugt eine Einspieldatei + Prüfdatei von zusammen
+oft mehreren MB - als Base64 im JSON-Response der Funktion würde das erneut
+das 4,5-MB-Limit von Vercel Serverless Functions reißen (siehe
+"Datei-Upload über Vercel Blob" oben, nur diesmal auf dem Rückweg). Deshalb
+lädt `api/process.js` die fertigen Dateien selbst zu Vercel Blob hoch
+(`access: "public"` mit zufälligem Pfad-Suffix, also nicht auffindbar ohne
+den Link) und gibt nur die (kleinen) `downloadUrl`-Links im JSON-Response
+zurück; der Browser lädt die Datei direkt von dort herunter, nicht über
+diese Funktion. Die hochgeladenen Ergebnisdateien werden aktuell nicht
+automatisch wieder gelöscht (nur die hochgeladene Report-Datei wird nach der
+Verarbeitung entfernt) - bei Bedarf könnte dafür später ein Cron-Job
+ergänzt werden.
 
 ## Umgebungsvariablen (im Vercel-Projekt konfigurieren)
 
