@@ -2,7 +2,8 @@ const path = require('path');
 const ExcelJS = require('exceljs');
 const Anthropic = require('@anthropic-ai/sdk');
 const { del } = require('@vercel/blob');
-const { buildOutput, writeOutputToTemplate, buildReviewWorkbook, buildReviewWorkbookV2, REVIEW_REASON_LABELS } = require('../lib/outputBuilder');
+const pipelineV2 = require('../lib/outputBuilder');
+const pipelineV1 = require('../lib/outputBuilderV1');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'vorlage.xlsx');
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
@@ -23,11 +24,15 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const { blobUrl, dateFrom: dateFromRaw, dateTo: dateToRaw } = req.body || {};
+  const { blobUrl, dateFrom: dateFromRaw, dateTo: dateToRaw, version: versionRaw } = req.body || {};
   if (!blobUrl || typeof blobUrl !== 'string') {
     res.status(400).json({ error: 'Keine Datei erhalten (blobUrl fehlt).' });
     return;
   }
+
+  const version = versionRaw === 'v1' ? 'v1' : 'v2';
+  const { buildOutput, writeOutputToTemplate, buildReviewWorkbook, buildReviewWorkbookV2, REVIEW_REASON_LABELS } =
+    version === 'v1' ? pipelineV1 : pipelineV2;
 
   const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
 
@@ -62,13 +67,24 @@ module.exports = async function handler(req, res) {
     const outBuffer = await templateWorkbook.xlsx.writeBuffer();
     const fileBase64 = Buffer.from(outBuffer).toString('base64');
 
-    const reviewWorkbook = buildReviewWorkbook(review);
+    // Im V1-Pipeline-Modus (alte Logik) gibt es zwei Pruefliste-Formate: die
+    // tabellierte Version (buildReviewWorkbookV2, im Daten-Spaltenformat) ist
+    // die primaere Datei, die flache Liste (buildReviewWorkbook) steht als
+    // zusaetzlicher Legacy-Download zum Vergleich bereit. Im V2-Pipeline-Modus
+    // (neues Filtersystem) gibt es nur die eine, vereinheitlichte Pruefdatei.
+    const primaryReviewBuilder = version === 'v1' && typeof buildReviewWorkbookV2 === 'function'
+      ? buildReviewWorkbookV2
+      : buildReviewWorkbook;
+    const reviewWorkbook = primaryReviewBuilder(review);
     const reviewBuffer = await reviewWorkbook.xlsx.writeBuffer();
     const reviewBase64 = Buffer.from(reviewBuffer).toString('base64');
 
-    const reviewWorkbookV2 = buildReviewWorkbookV2(review);
-    const reviewBufferV2 = await reviewWorkbookV2.xlsx.writeBuffer();
-    const reviewV2Base64 = Buffer.from(reviewBufferV2).toString('base64');
+    let reviewLegacyFlatBase64 = null;
+    if (version === 'v1' && typeof buildReviewWorkbookV2 === 'function') {
+      const legacyWorkbook = buildReviewWorkbook(review);
+      const legacyBuffer = await legacyWorkbook.xlsx.writeBuffer();
+      reviewLegacyFlatBase64 = Buffer.from(legacyBuffer).toString('base64');
+    }
 
     const reviewSummary = {};
     for (const entry of review) {
@@ -88,12 +104,13 @@ module.exports = async function handler(req, res) {
 
     const dateStamp = new Date().toISOString().slice(0, 10);
     res.status(200).json({
+      version,
       fileBase64,
       filename: `Einspieldatei_${dateStamp}.xlsx`,
       reviewBase64,
-      reviewFilename: `Pruefliste_v1_${dateStamp}.xlsx`,
-      reviewV2Base64,
-      reviewV2Filename: `Pruefliste_v2_${dateStamp}.xlsx`,
+      reviewFilename: version === 'v1' ? `Pruefliste_${dateStamp}.xlsx` : `Pruefdatei_${dateStamp}.xlsx`,
+      reviewLegacyFlatBase64,
+      reviewLegacyFlatFilename: reviewLegacyFlatBase64 ? `Pruefliste_flach_${dateStamp}.xlsx` : null,
       preview,
       stats,
       reviewSummary

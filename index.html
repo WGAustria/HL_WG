@@ -221,6 +221,33 @@
     font-weight: 600;
     cursor: pointer;
   }
+  .version-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    margin: 4px 0 4px;
+    background: var(--bg);
+  }
+  .version-toggle button {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .version-toggle button.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .version-hint {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin: 0 0 16px;
+  }
 </style>
 </head>
 <body>
@@ -236,7 +263,13 @@
 
   <div class="card hidden" id="mainCard">
     <h1>Wertgarantie Geräteschutz Reporting</h1>
-    <p class="subtitle">Report-Datei hochladen &ndash; Geräte und Wertgarantie-Artikel werden automatisch gefiltert, gepaart und in die Einspieldatei übernommen.</p>
+    <p class="subtitle">Report-Datei hochladen &ndash; Geräte und Wertgarantie-Artikel werden automatisch gefiltert und gepaart.</p>
+
+    <div class="version-toggle" id="versionToggle">
+      <button type="button" data-version="v2" class="active">V2 &ndash; Filtersystem (neu)</button>
+      <button type="button" data-version="v1">V1 &ndash; bisherige Logik</button>
+    </div>
+    <p class="version-hint" id="versionHint"></p>
 
     <label class="dropzone" id="dropzone" for="fileInput">
       <div id="dropzoneText">
@@ -267,8 +300,8 @@
       <div class="stats" id="stats"></div>
       <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
         <a class="download" id="downloadLink" download="Einspieldatei.xlsx">Einspieldatei herunterladen</a>
-        <a class="download" id="reviewDownloadLink" download="Pruefliste.xlsx">Prüfliste V1 herunterladen</a>
-        <a class="download" id="reviewV2DownloadLink" download="Pruefliste_v2.xlsx">Prüfliste V2 herunterladen</a>
+        <a class="download" id="reviewDownloadLink" download="Pruefdatei.xlsx">Prüfdatei herunterladen</a>
+        <a class="download hidden" id="reviewLegacyFlatDownloadLink" download="Pruefliste_flach.xlsx">Prüfliste (flach) herunterladen</a>
       </div>
       <div id="reviewSummary"></div>
       <div class="preview" id="preview"></div>
@@ -330,12 +363,33 @@
   const resultEl = document.getElementById('result');
   const downloadLink = document.getElementById('downloadLink');
   const reviewDownloadLink = document.getElementById('reviewDownloadLink');
-  const reviewV2DownloadLink = document.getElementById('reviewV2DownloadLink');
+  const reviewLegacyFlatDownloadLink = document.getElementById('reviewLegacyFlatDownloadLink');
   const previewEl = document.getElementById('preview');
   const statsEl = document.getElementById('stats');
   const reviewSummaryEl = document.getElementById('reviewSummary');
   const dateFromEl = document.getElementById('dateFrom');
   const dateToEl = document.getElementById('dateTo');
+
+  const versionToggle = document.getElementById('versionToggle');
+  const versionHint = document.getElementById('versionHint');
+  const VERSION_HINTS = {
+    v2: 'Neues Filtersystem: nur Zeilen mit allen Parametern landen in der Einspieldatei. Alle anderen (fehlende Angabe, mehrdeutige Zuordnung, Netzbetreiber-Geräte) landen ausschließlich in der Prüfdatei, im selben Spaltenformat wie die Einspieldatei.',
+    v1: 'Bisherige Logik (Preisstaffel-Zuordnung bei mehreren Kandidaten, Netzbetreiber-Geräte werden mit übernommen). Zeilen mit fehlender Angabe stehen zusätzlich in der Prüfliste, sind aber schon in der Einspieldatei enthalten.'
+  };
+  let selectedVersion = 'v2';
+  function setVersion(v) {
+    selectedVersion = v;
+    versionToggle.querySelectorAll('button').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.version === v);
+    });
+    versionHint.textContent = VERSION_HINTS[v] || '';
+    resultEl.classList.remove('visible');
+  }
+  versionToggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-version]');
+    if (btn) setVersion(btn.dataset.version);
+  });
+  setVersion('v2');
 
   let selectedFile = null;
 
@@ -413,7 +467,8 @@
         body: JSON.stringify({
           blobUrl: blobResult.url,
           dateFrom: dateFromEl.value || null,
-          dateTo: dateToEl.value || null
+          dateTo: dateToEl.value || null,
+          version: selectedVersion
         })
       });
 
@@ -436,18 +491,33 @@
       downloadLink.href = toXlsxUrl(data.fileBase64);
       downloadLink.download = data.filename || 'Einspieldatei.xlsx';
       reviewDownloadLink.href = toXlsxUrl(data.reviewBase64);
-      reviewDownloadLink.download = data.reviewFilename || 'Pruefliste.xlsx';
-      reviewV2DownloadLink.href = toXlsxUrl(data.reviewV2Base64);
-      reviewV2DownloadLink.download = data.reviewV2Filename || 'Pruefliste_v2.xlsx';
+      reviewDownloadLink.download = data.reviewFilename || 'Pruefdatei.xlsx';
+
+      if (data.reviewLegacyFlatBase64) {
+        reviewLegacyFlatDownloadLink.href = toXlsxUrl(data.reviewLegacyFlatBase64);
+        reviewLegacyFlatDownloadLink.download = data.reviewLegacyFlatFilename || 'Pruefliste_flach.xlsx';
+        reviewLegacyFlatDownloadLink.classList.remove('hidden');
+      } else {
+        reviewLegacyFlatDownloadLink.classList.add('hidden');
+      }
 
       statsEl.innerHTML = '';
       if (data.stats) {
+        // V1 kennt kein Filtersystem - dort landen alle gebildeten Paare in
+        // der Einspieldatei, die Pruefliste ergaenzt nur einzelne Felder.
+        const einspieldateiRows = data.stats.einspieldateiRows ?? data.stats.pairsCreated;
+        const pruefdateiRows = data.stats.pruefdateiRows ?? 0;
+        const quote = data.stats.pairsCreated
+          ? Math.round((pruefdateiRows / data.stats.pairsCreated) * 100) + '%'
+          : '0%';
         const tiles = [
           ['Zeilen gesamt', data.stats.totalRows],
           ['Bons gruppiert', data.stats.bonGroups],
           ['Paare gebildet', data.stats.pairsCreated],
           ['davon Storno', data.stats.stornoCount],
-          ['Prüfliste (Zeilen)', data.stats.reviewRowCount]
+          ['In Einspieldatei', einspieldateiRows],
+          ['In Prüfdatei', pruefdateiRows],
+          ['Prüfdatei-Quote', quote]
         ];
         tiles.forEach(([label, value]) => {
           const tile = document.createElement('div');

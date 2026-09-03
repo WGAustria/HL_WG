@@ -21,13 +21,21 @@ api/blob-upload.js          Stellt Client-Tokens für den direkten Browser-Uploa
 api/process.js              Lädt die Report-Datei von Vercel Blob, orchestriert die Verarbeitung
 build/blob-client-entry.js  Build-Entry für den Blob-Upload-Browser-Bundle (siehe unten)
 blob-client.bundle.js       Fertig gebauter Browser-Bundle (im Repo abgelegt, kein Build-Step nötig)
-lib/reportPipeline.js       Filtern (Geraet/WG-Artikel/Sonstiges), Bonnummer-Gruppierung, Paarung, Storno-Netting
-lib/brandMatch.js           Hersteller-Ableitung per Markenliste (schnell, kein API-Call)
-lib/brandLlmFallback.js     Hersteller-Ableitung per Claude fuer unbekannte Artikelbezeichnungen (gebuendelt)
-lib/vermittlerLookup.js     Vermittlernummer-Lookup ueber die "MA Liste" im Report
-lib/outputBuilder.js        Baut die Ausgabezeilen und schreibt sie in die Vorlage + Pruefliste
+lib/reportPipeline.js       V2 (neu): Filtern, Bonnummer-Gruppierung, Paarung, Storno-Netting
+lib/brandMatch.js           V2 (neu): Hersteller-Ableitung + Netzbetreiber-Geraet-Erkennung
+lib/outputBuilder.js        V2 (neu): Ausgabezeilen bauen, Filtersystem, EINE Pruefdatei
+lib/reportPipelineV1.js     V1 (bisherige Logik): wie reportPipeline.js, inkl. Preisstaffel-Zuordnung
+lib/brandMatchV1.js         V1 (bisherige Logik): wie brandMatch.js, ohne Netzbetreiber-Erkennung
+lib/outputBuilderV1.js      V1 (bisherige Logik): wie outputBuilder.js, ohne Filtersystem
+lib/brandLlmFallback.js     Hersteller-Ableitung per Claude fuer unbekannte Artikelbezeichnungen (gebuendelt, V1+V2)
+lib/vermittlerLookup.js     Vermittlernummer-Lookup ueber die "MA Liste" im Report (V1+V2)
 templates/vorlage.xlsx      Die echte Einspieldatei-Vorlage ("Daten" + "Gerätekennzeichen")
 ```
+
+Die Web-Oberfläche hat nach dem Login einen Umschalter zwischen **V1**
+(bisherige Logik) und **V2** (neues Filtersystem) – siehe Abschnitt "V1 vs.
+V2" unten. Beide Varianten laufen parallel im selben Deployment, damit sie
+vor einer endgültigen Entscheidung direkt verglichen werden können.
 
 Zero-config Vercel-Projekt ("Other"): statische Dateien im Projekt-Root,
 Serverless Functions im Ordner `api/`. `vercel.json` setzt `maxDuration: 60`
@@ -73,31 +81,68 @@ eingecheckt).
   `PGR_Bezeichnung == "Wertgarantie"` = WG-Artikel. Alles andere
   (Zubehör, Dienstleistungen, Gutscheine, ...) fällt raus. `"Wertgarantie GS"`
   hat keinen Treffer in `PG Matching` und wird separat zur Prüfung markiert.
-- **Paarung**: eindeutige 1:1-Fälle pro Bonnummer werden automatisch gepaart;
-  bei mehreren Kandidaten wird die im WG-Artikelnamen enthaltene
-  Preisobergrenze genutzt (z.B. "WG UE Garantie 5J bis 300 €" → passendes
-  Gerät bis 300 €). Bleibt es mehrdeutig, geht die ganze Bon-Gruppe in die
-  Prüfliste statt geraten zu werden.
+  (identisch in V1 und V2)
+- **Paarung**: eindeutige 1:1-Fälle pro Bonnummer werden automatisch gepaart.
+  Bei mehreren Kandidaten im selben Bon nutzt **V1** die im WG-Artikelnamen
+  enthaltene Preisobergrenze (z.B. "WG UE Garantie 5J bis 300 €" → passendes
+  Gerät bis 300 €), um trotzdem automatisch zu paaren. **V2** verzichtet
+  bewusst auf diese Preisstaffel-Zuordnung – bei mehreren Kandidaten geht die
+  ganze Bon-Gruppe immer in die Prüfdatei statt (auch nur teilweise)
+  automatisch geraten zu werden.
 - **Spalten-Mapping Report → Vorlage**: erfolgt **nach Feldbedeutung**
   (Hersteller→Hersteller, SerienNr→Seriennummer, umsatz→Kaufpreis, ...), nicht
   positionsbasiert wie ursprünglich in der Anleitung beschrieben – eine
   wörtliche Spalte-E-bis-Z-Kopie wurde an den echten Dateien getestet und
   ergab keinen Sinn (Spalten landen mehrere Positionen verschoben). Siehe
   `lib/outputBuilder.js` (`TARGET_COLS`) für die konkrete Zuordnung.
+  (identisch in V1 und V2)
 - **Hersteller**: zuerst Musterabgleich über eine kuratierte Markenliste
-  (`lib/brandMatch.js`, deckt ca. 92% der Gerätezeilen ab), für den Rest
-  gebündelter Claude-Aufruf pro **eindeutiger** Artikelbezeichnung (nicht pro
-  Zeile) in `lib/brandLlmFallback.js`.
+  (`lib/brandMatch.js` bzw. `lib/brandMatchV1.js`, deckt ca. 92% der
+  Gerätezeilen ab), für den Rest gebündelter Claude-Aufruf pro **eindeutiger**
+  Artikelbezeichnung (nicht pro Zeile) in `lib/brandLlmFallback.js`.
 - **Vermittlernummer**: Lookup über `vknr` (Report Spalte E) gegen die
   Spalte "Mitarbeiter" im Blatt `MA Liste`, mit Namens-Fallback. Ca. 15% der
-  Mitarbeiter fehlen aktuell in der MA-Liste – diese Zeilen landen in der
-  Prüfliste.
+  Mitarbeiter fehlen aktuell in der MA-Liste.
+- **Netzbetreiber-Geräte**: Manche ArtikelBezeichnungen beginnen mit einer
+  österreichischen Mobilfunk-Vorwahl (0660/0664/0676/...) statt direkt mit der
+  Marke (z.B. "0664 Sam A56") – ein Hinweis, dass das Gerät an einen
+  Mobilfunkvertrag gebunden ist. **V2** erkennt das (`isNetzbetreiberGeraet` in
+  `lib/brandMatch.js`) und gibt solche Zeilen bewusst NICHT in die
+  Einspieldatei, sondern ausschließlich in die Prüfdatei. **V1** kennt diese
+  Unterscheidung nicht und übernimmt solche Zeilen wie jedes andere Gerät.
 - **Produkttyp**: `GERAETESCHUTZ_KOMFORT_3_2021` / `GERAETESCHUTZ_PLUS_24_2021`
   / `GERAETESCHUTZ_BASIS_5_2021`, abgeleitet aus dem WG-Artikelnamen
-  ("Komfort" / "Plus" / sonst Basis).
+  ("Komfort" / "Plus" / sonst Basis). (identisch in V1 und V2)
 - **Storno**: Minus-Positionen, die sich nicht mit einer Gegenposition im
   selben Bon aufheben, werden mit `Antragskodierung = "STORNO"` markiert und
-  die ganze Zeile rot eingefärbt.
+  die ganze Zeile rot eingefärbt. (identisch in V1 und V2)
+
+## V1 vs. V2 – das Filtersystem
+
+Auf der Web-Oberfläche kann nach dem Login zwischen zwei Verarbeitungslogiken
+gewählt werden:
+
+- **V2 – Filtersystem (neu, Standard):** ein Datensatz landet **nur dann** in
+  der Einspieldatei, wenn wirklich **alle** Parameter automatisch ermittelt
+  werden konnten (Vermittlernummer, Hersteller, eindeutige Paarung) UND es
+  sich nicht um ein Netzbetreiber-Gerät handelt. Fehlt auch nur eines davon,
+  geht die komplette Zeile **ausschließlich** in die Prüfdatei – nie in
+  beide. Die Prüfdatei ist dabei **eine einzige Arbeitsmappe im exakt selben
+  Spaltenformat wie das "Daten"-Blatt** der Einspieldatei (plus angehängten
+  Grund-/Bonnummer-/Hinweis-Spalten), damit eine geprüfte/ergänzte Zeile 1:1
+  hineinkopiert werden kann. Keine Preisstaffel-Zuordnung bei mehreren
+  Kandidaten (siehe oben).
+- **V1 – bisherige Logik:** entspricht dem Stand vor der Filtersystem-Umstellung.
+  Preisstaffel-Zuordnung bei mehreren Kandidaten ist aktiv, Netzbetreiber-Geräte
+  werden nicht gesondert behandelt, und Zeilen mit fehlender Vermittlernummer
+  oder unbekanntem Hersteller werden **trotzdem** (mit Lücke) in die
+  Einspieldatei übernommen – die Prüfliste dient dort nur dazu, die fehlende
+  Angabe direkt in der bereits vorhandenen Zeile zu ergänzen. V1 bietet
+  zusätzlich einen Download der (älteren) flachen Prüfliste als Vergleich.
+
+Beide Modi laufen über denselben Endpunkt (`api/process.js`, Parameter
+`version: "v1" | "v2"`) und dieselbe Report-Datei/Vorlage – der Unterschied
+steckt ausschließlich in `lib/*V1.js` vs. `lib/*.js`.
 
 ### Bewusst offen / TODO
 
@@ -116,12 +161,12 @@ eingecheckt).
   ("Daten aktualisieren", Schritt 2 der Anleitung) – das Tool selbst hat
   keinen Zugriff auf die zugrundeliegende Datenquelle.
 
-## Prüfliste
+## Prüfdatei / Prüfliste
 
-Jede erzeugte Einspieldatei enthält zusätzlich zum Blatt "Daten" ein Blatt
-**"Pruefliste"** mit allen Zeilen, die nicht automatisch verarbeitet werden
-konnten (Grund, Bonnummer, Artikel, Beträge, ...). Die Web-Oberfläche zeigt
-zusätzlich eine Zusammenfassung nach Grund an.
+Die Prüfdatei (V2) bzw. Prüfliste (V1) ist eine **eigenständige** Datei, kein
+Tab in der Einspieldatei – siehe Abschnitt "V1 vs. V2" oben für den genauen
+Unterschied. Die Web-Oberfläche zeigt zusätzlich eine Zusammenfassung nach
+Grund an.
 
 ## Umgebungsvariablen (im Vercel-Projekt konfigurieren)
 
