@@ -99,17 +99,20 @@ eingecheckt).
 - **Hersteller**: zuerst Musterabgleich über eine kuratierte Markenliste
   (`lib/brandMatch.js` bzw. `lib/brandMatchV1.js`, deckt ca. 92% der
   Gerätezeilen ab), für den Rest gebündelter Claude-Aufruf pro **eindeutiger**
-  Artikelbezeichnung (nicht pro Zeile) in `lib/brandLlmFallback.js`.
+  Artikelbezeichnung (nicht pro Zeile) in `lib/brandLlmFallback.js`. Bleibt der
+  Hersteller danach immer noch unbekannt, wird `"sonstige"` eingetragen statt
+  die Zeile zurückzuhalten – die Zeile gilt dafür allein nicht mehr als
+  unvollständig. (identisch in V1 und V2)
 - **Vermittlernummer**: Lookup über `vknr` (Report Spalte E) gegen die
   Spalte "Mitarbeiter" im Blatt `MA Liste`, mit Namens-Fallback. Ca. 15% der
   Mitarbeiter fehlen aktuell in der MA-Liste.
 - **Netzbetreiber-Geräte**: Manche ArtikelBezeichnungen beginnen mit einer
   österreichischen Mobilfunk-Vorwahl (0660/0664/0676/...) statt direkt mit der
   Marke (z.B. "0664 Sam A56") – ein Hinweis, dass das Gerät an einen
-  Mobilfunkvertrag gebunden ist. **V2** erkennt das (`isNetzbetreiberGeraet` in
-  `lib/brandMatch.js`) und gibt solche Zeilen bewusst NICHT in die
-  Einspieldatei, sondern ausschließlich in die Prüfdatei. **V1** kennt diese
-  Unterscheidung nicht und übernimmt solche Zeilen wie jedes andere Gerät.
+  Mobilfunkvertrag gebunden ist. Solche Zeilen gehen in **beiden Versionen**
+  (`isNetzbetreiberGeraet` in `lib/brandMatch.js` bzw. `lib/brandMatchV1.js`)
+  bewusst NICHT in die Einspieldatei, sondern ausschließlich in die
+  Prüfdatei/Prüfliste.
 - **Produkttyp**: `GERAETESCHUTZ_KOMFORT_3_2021` / `GERAETESCHUTZ_PLUS_24_2021`
   / `GERAETESCHUTZ_BASIS_5_2021`, abgeleitet aus dem WG-Artikelnamen
   ("Komfort" / "Plus" / sonst Basis). (identisch in V1 und V2)
@@ -124,20 +127,21 @@ gewählt werden:
 
 - **V2 – Filtersystem (neu, Standard):** ein Datensatz landet **nur dann** in
   der Einspieldatei, wenn wirklich **alle** Parameter automatisch ermittelt
-  werden konnten (Vermittlernummer, Hersteller, eindeutige Paarung) UND es
-  sich nicht um ein Netzbetreiber-Gerät handelt. Fehlt auch nur eines davon,
-  geht die komplette Zeile **ausschließlich** in die Prüfdatei – nie in
-  beide. Die Prüfdatei ist dabei **eine einzige Arbeitsmappe im exakt selben
+  werden konnten (Vermittlernummer, eindeutige Paarung) UND es sich nicht um
+  ein Netzbetreiber-Gerät handelt. Fehlt auch nur eines davon, geht die
+  komplette Zeile **ausschließlich** in die Prüfdatei – nie in beide. Die
+  Prüfdatei ist dabei **eine einzige Arbeitsmappe im exakt selben
   Spaltenformat wie das "Daten"-Blatt** der Einspieldatei (plus angehängten
   Grund-/Bonnummer-/Hinweis-Spalten), damit eine geprüfte/ergänzte Zeile 1:1
   hineinkopiert werden kann. Keine Preisstaffel-Zuordnung bei mehreren
-  Kandidaten (siehe oben).
+  Kandidaten (siehe oben). Unbekannter Hersteller blockiert nicht mehr (siehe
+  "sonstige"-Fallback oben).
 - **V1 – bisherige Logik:** entspricht dem Stand vor der Filtersystem-Umstellung.
-  Preisstaffel-Zuordnung bei mehreren Kandidaten ist aktiv, Netzbetreiber-Geräte
-  werden nicht gesondert behandelt, und Zeilen mit fehlender Vermittlernummer
-  oder unbekanntem Hersteller werden **trotzdem** (mit Lücke) in die
+  Preisstaffel-Zuordnung bei mehreren Kandidaten ist aktiv, und Zeilen mit
+  fehlender Vermittlernummer werden **trotzdem** (mit Lücke) in die
   Einspieldatei übernommen – die Prüfliste dient dort nur dazu, die fehlende
-  Angabe direkt in der bereits vorhandenen Zeile zu ergänzen. V1 bietet
+  Angabe direkt in der bereits vorhandenen Zeile zu ergänzen. Netzbetreiber-Geräte
+  werden wie in V2 immer ausschließlich in die Prüfliste gegeben. V1 bietet
   zusätzlich einen Download der (älteren) flachen Prüfliste als Vergleich.
 
 Beide Modi laufen über denselben Endpunkt (`api/process.js`, Parameter
